@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Draft Order Picker</title>
+<style>
+  :root{
+    --bg:#0d1411; --panel:#152019; --panel2:#1b2a21; --line:#2c4034;
+    --ink:#e8f0ea; --dim:#8fa697; --gold:#e8b73a; --green:#3fb56b; --red:#e5604d;
+    --card:#1f3527; --card2:#16261c;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-text-size-adjust:100%}
+  .wrap{max-width:860px;margin:0 auto;padding:20px 16px 64px}
+  h1{font-size:24px;margin:0 0 4px;letter-spacing:-.4px}
+  h2{font-size:15px;text-transform:uppercase;letter-spacing:1.2px;color:var(--dim);
+    margin:0 0 12px;font-weight:700}
+  .sub{color:var(--dim);margin:0 0 24px;font-size:14px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:18px;margin-bottom:16px}
+  .panel.hot{border-color:var(--gold);box-shadow:0 0 0 3px rgba(232,183,58,.09)}
+  button{font:inherit;font-weight:650;cursor:pointer;border-radius:10px;padding:11px 16px;
+    border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+    -webkit-tap-highlight-color:transparent}
+  button:hover:not(:disabled){border-color:var(--dim)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.primary{background:var(--gold);color:#241a03;border-color:var(--gold)}
+  button.go{background:var(--green);color:#04180c;border-color:var(--green)}
+  button.small{padding:7px 11px;font-size:13px}
+  input,textarea{font:inherit;width:100%;background:var(--card2);color:var(--ink);
+    border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+  input:focus,textarea:focus{outline:2px solid var(--gold);outline-offset:-1px}
+  textarea{resize:vertical;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .muted{color:var(--dim);font-size:13px}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;word-break:break-all}
+  .err{color:var(--red);font-size:14px;margin-top:10px}
+  .ok{color:var(--green)}
+
+  .names{display:grid;gap:8px}
+  .nrow{display:grid;grid-template-columns:34px 1fr auto auto;gap:6px;align-items:center}
+  .nrow .n{color:var(--dim);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
+
+  .fan{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:10px;margin:14px 0}
+  .cd{aspect-ratio:2/3;border-radius:11px;border:2px solid var(--line);
+    background:repeating-linear-gradient(45deg,var(--card) 0 7px,var(--card2) 7px 14px);
+    display:flex;align-items:center;justify-content:center;font-size:26px;
+    transition:transform .12s,border-color .12s;user-select:none;position:relative}
+  .cd.pick{cursor:pointer}
+  .cd.pick:hover{transform:translateY(-5px);border-color:var(--dim)}
+  .cd.sel{border-color:var(--gold);transform:translateY(-9px);
+    box-shadow:0 8px 18px rgba(0,0,0,.45)}
+  .cd.keep{border-color:var(--green);background:var(--green);color:#04180c;
+    font-weight:800;font-size:34px}
+  .cd .v{font-size:34px;font-weight:800;color:var(--gold)}
+  .cd .who{position:absolute;bottom:5px;left:0;right:0;text-align:center;font-size:9px;
+    color:var(--dim);padding:0 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cd.owned{background:var(--card);border-color:var(--gold)}
+
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{text-align:left;color:var(--dim);font-size:11px;text-transform:uppercase;
+    letter-spacing:1px;padding:0 8px 8px;font-weight:700}
+  td{padding:9px 8px;border-top:1px solid var(--line)}
+  td.pk{font-weight:800;color:var(--gold);font-variant-numeric:tabular-nums;width:46px;
+    font-size:18px}
+  .tag{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);
+    color:var(--dim);white-space:nowrap}
+  .tag.up{border-color:var(--gold);color:var(--gold)}
+  .tag.done{border-color:var(--green);color:var(--green)}
+
+  .msg{background:var(--card2);border:1px solid var(--line);border-radius:9px;
+    padding:11px 12px;font-size:14px;white-space:pre-wrap;word-break:break-word;margin:8px 0}
+  details{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+  summary{cursor:pointer;color:var(--dim);font-size:13px}
+  .step{display:inline-block;background:var(--gold);color:#241a03;font-weight:800;
+    border-radius:99px;width:22px;height:22px;text-align:center;line-height:22px;
+    font-size:13px;margin-right:8px}
+  .hide{display:none}
+  @media(max-width:520px){
+    .fan{grid-template-columns:repeat(auto-fill,minmax(66px,1fr));gap:8px}
+    .wrap{padding:16px 12px 56px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script>
+"use strict";
+
+/* ---------- encoding ---------- */
+const enc = o => btoa(String.fromCharCode.apply(null, new TextEncoder().encode(JSON.stringify(o))))
+  .replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
+const dec = s => JSON.parse(new TextDecoder().decode(
+  Uint8Array.from(atob(s.replace(/-/g,'+').replace(/_/g,'/')), c => c.charCodeAt(0))));
+
+/* ---------- randomness ---------- */
+function randInt(n){                        // unbiased [0,n)
+  const lim = Math.floor(0x100000000 / n) * n, a = new Uint32Array(1);
+  let x; do { crypto.getRandomValues(a); x = a[0]; } while (x >= lim);
+  return x % n;
+}
+function shuffle(arr){
+  const a = arr.slice();
+  for(let i = a.length - 1; i > 0; i--){ const j = randInt(i + 1); const t = a[i]; a[i] = a[j]; a[j] = t; }
+  return a;
+}
+const hex = n => Array.from(crypto.getRandomValues(new Uint8Array(n)))
+  .map(b => b.toString(16).padStart(2,'0')).join('');
+
+async function sha256(str){
+  if(!(crypto.subtle && crypto.subtle.digest)) return null;    // needs https or localhost
+  const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(d)).map(b => b.toString(16).padStart(2,'0')).join('');
+}
+
+/* ---------- rules ---------- */
+const N = 12;
+const drawCount = turn => turn === 0 ? 3 : 1;   // only Owner 1 draws three
+
+/* ---------- state ---------- */
+const KEY = 'draftOrderPicker.v1';
+let S = null;
+
+function save(){
+  try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(e){}
+  try{ history.replaceState(null, '', location.pathname + '#host=' + enc(S)); }catch(e){}
+}
+function load(){
+  if(location.hash.indexOf('#host=') === 0){
+    try{ S = dec(location.hash.slice(6)); save(); return true; }catch(e){}
+  }
+  try{ const raw = localStorage.getItem(KEY); if(raw){ S = JSON.parse(raw); return true; } }catch(e){}
+  return false;
+}
+const avail = () => S.slotOwner.map((o,i) => o === null ? i : -1).filter(i => i >= 0);
+const linkFor = code => location.origin + location.pathname + '#t=' + code;
+
+/* ---------- dom helpers ---------- */
+// <template> is used rather than a <div> so that table rows survive parsing:
+// setting innerHTML on a div silently discards <tr>/<td> outside a table.
+const el = h => { const t = document.createElement('template'); t.innerHTML = h.trim(); return t.content.firstElementChild; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const app = () => document.getElementById('app');
+
+function copyBtn(label, getText){
+  const b = el('<button class="small">' + esc(label) + '</button>');
+  b.onclick = async () => {
+    const t = getText();
+    try{ await navigator.clipboard.writeText(t); }
+    catch(e){
+      const ta = document.createElement('textarea');
+      ta.value = t; document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); }catch(_){}
+      ta.remove();
+    }
+    const old = b.textContent;
+    b.textContent = 'Copied'; b.classList.add('ok');
+    setTimeout(() => { b.textContent = old; b.classList.remove('ok'); }, 1400);
+  };
+  return b;
+}
+function block(label, text, extra){
+  const w = el('<div></div>');
+  w.appendChild(el('<div class="muted">' + esc(label) + '</div>'));
+  w.appendChild(el('<div class="msg">' + esc(text) + '</div>'));
+  const r = el('<div class="row"></div>');
+  r.appendChild(copyBtn('Copy', () => text));
+  if(extra) r.appendChild(extra);
+  w.appendChild(r);
+  return w;
+}
+function smsBtn(text, label){
+  return el('<a href="sms:?&body=' + encodeURIComponent(text) + '" style="text-decoration:none">'
+    + '<button class="small">' + esc(label) + '</button></a>');
+}
+
+/* ================= ROUTER ================= */
+function route(){
+  const h = location.hash;
+  if(h.indexOf('#t=') === 0){
+    let p = null;
+    try{ p = dec(h.slice(3)); }catch(e){}
+    if(p && p.v === 1) return ownerView(p);
+    app().innerHTML = '<div class="panel"><h1>Bad link</h1>'
+      + '<p class="sub">This turn link is damaged. Ask Paul to send it again.</p></div>';
+    return;
+  }
+  if(load() && S && S.deck) return hostView();
+  setupView();
+}
+
+/* ================= SETUP ================= */
+function setupView(){
+  const a = app(); a.innerHTML = '';
+  a.appendChild(el('<h1>Draft Order Picker</h1>'));
+  a.appendChild(el('<p class="sub">Host setup. You only do this once.</p>'));
+
+  const p = el('<div class="panel"><h2>Owners, in card-picking order</h2></div>');
+  p.appendChild(el('<p class="muted" style="margin-top:-6px">Owner 1 draws 3 cards and keeps 1. '
+    + 'Owners 2 through 11 draw one card each. Owner 12 gets the last card.</p>'));
+
+  const names = el('<div class="names"></div>');
+  for(let i = 0; i < N; i++){
+    const r = el('<div class="nrow"><div class="n">' + (i+1) + '.</div>'
+      + '<input type="text" placeholder="Owner ' + (i+1) + '" autocomplete="off">'
+      + '<button class="small" title="Move up">&#8593;</button>'
+      + '<button class="small" title="Move down">&#8595;</button></div>');
+    const btns = r.querySelectorAll('button');
+    btns[0].onclick = () => swap(i, i-1);
+    btns[1].onclick = () => swap(i, i+1);
+    if(i === 0) btns[0].disabled = true;
+    if(i === N-1) btns[1].disabled = true;
+    names.appendChild(r);
+  }
+  const inputs = () => Array.from(names.querySelectorAll('input'));
+  const vals = () => inputs().map(x => x.value);
+  function swap(i, j){
+    if(j < 0 || j >= N) return;
+    const v = vals(); const t = v[i]; v[i] = v[j]; v[j] = t;
+    inputs().forEach((x,k) => x.value = v[k]);
+  }
+  p.appendChild(names);
+
+  const ctl = el('<div class="row" style="margin-top:16px"></div>');
+  const start = el('<button class="primary">Shuffle deck and start draft</button>');
+  const demo = el('<button class="small">Fill demo names</button>');
+  demo.onclick = () => {
+    const d = ['Paul','Marcus','Dave','Tony','Chris','Nick','Sam','Joe','Ryan','Mike','Alex','Ben'];
+    inputs().forEach((x,k) => x.value = d[k]);
+  };
+  const err = el('<div class="err hide"></div>');
+  start.onclick = async () => {
+    const v = vals().map(s => s.trim());
+    if(v.some(s => !s)){
+      err.textContent = 'Every owner needs a name.'; err.classList.remove('hide'); return;
+    }
+    if(new Set(v.map(s => s.toLowerCase())).size !== N){
+      err.textContent = 'Two owners have the same name. Make them unique.';
+      err.classList.remove('hide'); return;
+    }
+    const seed = hex(16);
+    const deck = shuffle(Array.from({length:N}, (_,i) => i + 1));
+    S = { v:1, seed:seed, deck:deck, owners:v, turn:0, nonce:hex(6),
+          slotOwner:Array(N).fill(null), log:[],
+          commit: await sha256(seed + '|' + deck.join(',')),
+          started: new Date().toISOString() };
+    save(); hostView();
+  };
+  ctl.appendChild(start); ctl.appendChild(demo);
+  p.appendChild(ctl); p.appendChild(err);
+  a.appendChild(p);
+
+  const rest = el('<div class="panel"><h2>Restore a draft</h2></div>');
+  rest.appendChild(el('<p class="muted" style="margin-top:-6px">Paste a backup code to bring a draft back.</p>'));
+  const ta = el('<textarea rows="3" placeholder="Paste backup code"></textarea>');
+  const rb = el('<button class="small" style="margin-top:8px">Restore</button>');
+  const re = el('<div class="err hide"></div>');
+  rb.onclick = () => {
+    try{
+      const s = dec(ta.value.trim());
+      if(!s.deck || !s.owners) throw new Error('bad');
+      S = s; save(); hostView();
+    }catch(e){
+      re.textContent = 'That code is not readable.'; re.classList.remove('hide');
+    }
+  };
+  rest.appendChild(ta); rest.appendChild(rb); rest.appendChild(re);
+  a.appendChild(rest);
+}
+
+/* ================= HOST ================= */
+function hostView(){
+  const a = app(); a.innerHTML = ''; save();
+  const done = S.turn >= N;
+  const left = N - S.turn;
+
+  a.appendChild(el('<h1>Draft Order Picker</h1>'));
+  a.appendChild(el('<p class="sub">' + (done
+    ? 'Draft order is set. All 12 cards are in.'
+    : 'Turn ' + (S.turn+1) + ' of ' + N + ' &middot; ' + left + ' card'
+      + (left === 1 ? '' : 's') + ' left in the pool') + '</p>'));
+
+  a.appendChild(done ? finalPanel() : turnPanel());
+  a.appendChild(boardPanel());
+  a.appendChild(rosterPanel());
+  a.appendChild(backupPanel());
+}
+
+function turnPanel(){
+  const t = S.turn, name = S.owners[t], pool = avail(), draw = drawCount(t);
+  const p = el('<div class="panel hot"><h2>Turn ' + (t+1) + ' &mdash; ' + esc(name) + '</h2></div>');
+
+  if(pool.length === 1){                          // last owner has no choice
+    p.appendChild(el('<p>Only one card is left, so <b>' + esc(name)
+      + '</b> takes it automatically.</p>'));
+    const b = el('<button class="go">Assign last card to ' + esc(name) + '</button>');
+    b.onclick = () => { commit(t, [pool[0]], pool[0]); hostView(); };
+    p.appendChild(b);
+    return p;
+  }
+
+  const link = linkFor(enc({ v:1, n:name, t:t, d:draw, s:shuffle(pool), k:S.nonce }));
+  const announce = name + ", you're up! " + pool.length + ' cards left'
+    + (draw === 3 ? ' - pick any 3, keep 1.' : ' - pick 1.') + '\n' + link;
+
+  p.appendChild(el('<p style="margin-top:0"><span class="step">1</span>Send <b>'
+    + esc(name) + '</b> their turn link.</p>'));
+  p.appendChild(block('Paste this into the league group chat', announce,
+    smsBtn(announce, 'Open in Messages')));
+
+  p.appendChild(el('<p style="margin:20px 0 0"><span class="step">2</span>'
+    + 'When they finish, paste the code they send back.</p>'));
+  const ta = el('<textarea rows="2" placeholder="Paste the code from ' + esc(name) + '"></textarea>');
+  const err = el('<div class="err hide"></div>');
+  const sub = el('<button class="go" style="margin-top:8px">Submit code</button>');
+  sub.onclick = () => {
+    err.classList.add('hide');
+    const fail = m => { err.textContent = m; err.classList.remove('hide'); };
+    let r = null;
+    try{ r = dec(ta.value.trim()); }catch(e){}
+    if(!r || r.v !== 1) return fail('That code is not readable. Ask them to copy it again.');
+    if(r.k !== S.nonce) return fail('That code is from a different draft.');
+    if(r.t !== t) return fail('That code is for turn ' + (r.t+1) + ', but we are on turn '
+      + (t+1) + '.' + (r.t < t ? ' It looks like it was already used.' : ''));
+    const drew = Array.isArray(r.drew) ? r.drew : [];
+    if(drew.length !== draw) return fail('Expected ' + draw + ' card'
+      + (draw === 1 ? '' : 's') + ' drawn, got ' + drew.length + '.');
+    if(new Set(drew).size !== drew.length) return fail('That code picks the same card twice.');
+    if(!drew.every(i => pool.indexOf(i) >= 0)) return fail('That code names a card that is not in the pool.');
+    if(drew.indexOf(r.kept) < 0) return fail('The kept card is not one of the drawn cards.');
+    commit(t, drew, r.kept); hostView();
+  };
+  p.appendChild(ta); p.appendChild(sub); p.appendChild(err);
+
+  const det = el('<details><summary>' + esc(name)
+    + ' not responding? Pick for them</summary></details>');
+  const host = el('<div style="margin-top:12px"></div>');
+  det.appendChild(host);
+  picker(host, pool, draw, (drew, kept) => { commit(t, drew, kept); hostView(); });
+  p.appendChild(det);
+  return p;
+}
+
+function commit(turn, drew, kept){
+  S.slotOwner[kept] = turn;
+  S.log.push({ turn:turn, owner:S.owners[turn], drew:drew, kept:kept,
+               value:S.deck[kept], at:new Date().toISOString() });
+  S.turn = turn + 1;
+  save();
+  if(S.turn === N - 1 && avail().length === 1){       // last owner is automatic
+    const last = avail()[0];
+    S.slotOwner[last] = S.turn;
+    S.log.push({ turn:S.turn, owner:S.owners[S.turn], drew:[last], kept:last,
+                 value:S.deck[last], at:new Date().toISOString(), auto:true });
+    S.turn = N;
+    save();
+  }
+}
+
+function boardPanel(){
+  const p = el('<div class="panel"><h2>The pool</h2></div>');
+  const fan = el('<div class="fan"></div>');
+  S.slotOwner.forEach((owner, i) => {
+    fan.appendChild(owner === null
+      ? el('<div class="cd"></div>')
+      : el('<div class="cd owned"><span class="v">' + S.deck[i] + '</span>'
+          + '<span class="who">' + esc(S.owners[owner]) + '</span></div>'));
+  });
+  p.appendChild(fan);
+  p.appendChild(el('<p class="muted" style="margin:0">Face-down cards are still in the pool. '
+    + 'Only you can see this. Owners never receive card values.</p>'));
+  return p;
+}
+
+function rosterPanel(){
+  const p = el('<div class="panel"><h2>Draft order</h2></div>');
+  const rows = S.owners.map((name, turn) => {
+    const e = S.log.filter(l => l.turn === turn)[0];
+    const tag = e ? '<span class="tag done">picked</span>'
+      : turn === S.turn ? '<span class="tag up">up now</span>'
+      : '<span class="tag">turn ' + (turn+1) + '</span>';
+    return { pick: e ? e.value : null, name:name, tag:tag, turn:turn };
+  });
+  rows.sort((a,b) => (a.pick === null ? 99 : a.pick) - (b.pick === null ? 99 : b.pick)
+    || a.turn - b.turn);
+  const t = el('<table><thead><tr><th>Pick</th><th>Owner</th><th></th></tr></thead>'
+    + '<tbody></tbody></table>');
+  const tb = t.querySelector('tbody');
+  rows.forEach(r => tb.appendChild(el('<tr><td class="pk">'
+    + (r.pick === null ? '&mdash;' : r.pick) + '</td><td>' + esc(r.name)
+    + '</td><td>' + r.tag + '</td></tr>')));
+  p.appendChild(t);
+  return p;
+}
+
+function finalPanel(){
+  const p = el('<div class="panel hot"><h2>Final draft order</h2></div>');
+  const order = S.log.slice().sort((a,b) => a.value - b.value)
+    .map(l => l.value + '. ' + l.owner).join('\n');
+  p.appendChild(block('Post this to the league', 'FINAL DRAFT ORDER\n\n' + order));
+  const det = el('<details><summary>Proof the deck was never changed</summary></details>');
+  det.appendChild(el('<p class="muted">Anyone can SHA-256 the string below and match it against '
+    + 'the commit hash you posted before picking started.</p>'));
+  det.appendChild(el('<div class="msg mono">' + esc(S.seed + '|' + S.deck.join(',')) + '</div>'));
+  det.appendChild(el('<div class="muted">Commit hash</div>'));
+  det.appendChild(el('<div class="msg mono">'
+    + esc(S.commit || 'unavailable - the page was opened over file://') + '</div>'));
+  p.appendChild(det);
+  return p;
+}
+
+function backupPanel(){
+  const p = el('<div class="panel"><h2>Backup</h2></div>');
+  p.appendChild(el('<p class="muted" style="margin-top:-6px">The deck lives only in this browser. '
+    + 'Text this code to yourself once. It restores the draft anywhere.</p>'));
+  const code = enc(S);
+  p.appendChild(el('<div class="msg mono" style="max-height:88px;overflow:auto">'
+    + esc(code) + '</div>'));
+  const r = el('<div class="row"></div>');
+  r.appendChild(copyBtn('Copy backup code', () => code));
+  if(S.commit) r.appendChild(copyBtn('Copy commit hash', () =>
+    'Deck is shuffled and locked. Proof hash: ' + S.commit));
+  const reset = el('<button class="small" style="margin-left:auto">Start over</button>');
+  reset.onclick = () => {
+    if(!confirm('Delete this draft and start over? The current deck and all picks are lost.')) return;
+    try{ localStorage.removeItem(KEY); }catch(e){}
+    history.replaceState(null, '', location.pathname);
+    S = null; setupView();
+  };
+  r.appendChild(reset);
+  p.appendChild(r);
+  return p;
+}
+
+/* ================= OWNER ================= */
+function ownerView(p){
+  const a = app(); a.innerHTML = '';
+  a.appendChild(el('<h1>' + esc(p.n) + ", you're up</h1>"));
+  a.appendChild(el('<p class="sub">' + p.s.length + ' cards left in the pool. '
+    + (p.d === 3 ? 'Pick any <b>3</b>, then keep <b>1</b>.' : 'Pick <b>1</b> card.')
+    + ' They are face-down. Nobody knows what is on them.</p>'));
+  const panel = el('<div class="panel hot"></div>');
+  a.appendChild(panel);
+  picker(panel, p.s, p.d, (drew, kept) => {
+    const code = enc({ v:1, t:p.t, k:p.k, drew:drew, kept:kept });
+    panel.innerHTML = '';
+    panel.appendChild(el('<h2>Card locked in</h2>'));
+    panel.appendChild(el('<p>Your card is claimed. Send this code to Paul and he will '
+      + 'tell you your draft pick.</p>'));
+    panel.appendChild(block('Send this to Paul', code, smsBtn(code, 'Open in Messages')));
+    panel.appendChild(el('<p class="muted">Nothing else to do. Do not reload this page.</p>'));
+  });
+}
+
+/* ---- shared picking UI: draw N cards, then keep one ---- */
+function picker(mount, slots, draw, onDone){
+  let sel = [], keep = null, phase = 'draw';
+  const status = el('<p class="muted"></p>');
+  const fan = el('<div class="fan"></div>');
+  const act = el('<div class="row"></div>');
+  mount.appendChild(status); mount.appendChild(fan); mount.appendChild(act);
+
+  function render(){
+    fan.innerHTML = ''; act.innerHTML = '';
+
+    if(phase === 'draw'){
+      status.innerHTML = draw > 1
+        ? 'Select <b>' + draw + '</b> cards. Chosen ' + sel.length + ' of ' + draw + '.'
+        : 'Tap the card you want.';
+      slots.forEach(id => {
+        const c = el('<div class="cd pick' + (sel.indexOf(id) >= 0 ? ' sel' : '') + '"></div>');
+        c.onclick = () => {
+          const at = sel.indexOf(id);
+          if(at >= 0) sel.splice(at, 1);
+          else if(sel.length < draw) sel.push(id);
+          if(draw === 1 && sel.length === 1){ keep = sel[0]; phase = 'confirm'; }
+          render();
+        };
+        fan.appendChild(c);
+      });
+      if(draw > 1){
+        const b = el('<button class="primary">Take these ' + draw + ' cards</button>');
+        b.disabled = sel.length !== draw;
+        b.onclick = () => { phase = 'keep'; render(); };
+        act.appendChild(b);
+      }
+    }
+
+    else if(phase === 'keep'){
+      status.innerHTML = 'Now tap the <b>one</b> you want to keep. '
+        + 'The other two go back into the pool.';
+      sel.forEach(id => {
+        const c = el('<div class="cd pick sel"></div>');
+        c.onclick = () => { keep = id; phase = 'confirm'; render(); };
+        fan.appendChild(c);
+      });
+      const b = el('<button class="small">Choose different cards</button>');
+      b.onclick = () => { sel = []; phase = 'draw'; render(); };
+      act.appendChild(b);
+    }
+
+    else {
+      status.innerHTML = 'Keep this card?';
+      const c = el('<div class="cd keep">?</div>');
+      c.style.maxWidth = '110px';
+      fan.appendChild(c);
+      const yes = el('<button class="go">Yes, lock it in</button>');
+      yes.onclick = () => onDone(sel.slice(), keep);
+      const no = el('<button class="small">Back</button>');
+      no.onclick = () => {
+        if(draw === 1){ sel = []; keep = null; phase = 'draw'; }
+        else phase = 'keep';
+        render();
+      };
+      act.appendChild(yes); act.appendChild(no);
+    }
+  }
+  render();
+}
+
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
