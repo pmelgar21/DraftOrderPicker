@@ -59,6 +59,8 @@
   .cd .who{position:absolute;bottom:5px;left:0;right:0;text-align:center;font-size:9px;
     color:var(--dim);padding:0 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .cd.owned{background:var(--card);border-color:var(--gold)}
+  .cd.face{background:var(--card);border-color:var(--gold)}
+  .cd.face.sel{border-color:var(--green);box-shadow:0 8px 18px rgba(0,0,0,.45)}
 
   table{width:100%;border-collapse:collapse;font-size:14px}
   th{text-align:left;color:var(--dim);font-size:11px;text-transform:uppercase;
@@ -184,7 +186,7 @@ function route(){
   if(h.indexOf('#t=') === 0){
     let p = null;
     try{ p = dec(h.slice(3)); }catch(e){}
-    if(p && p.v === 1) return ownerView(p);
+    if(p && p.v === 1) return p.c ? revealView(p) : ownerView(p);
     app().innerHTML = '<div class="panel"><h1>Bad link</h1>'
       + '<p class="sub">This turn link is damaged. Ask Paul to send it again.</p></div>';
     return;
@@ -244,7 +246,8 @@ function setupView(){
     }
     const seed = hex(16);
     const deck = shuffle(Array.from({length:N}, (_,i) => i + 1));
-    S = { v:1, seed:seed, deck:deck, owners:v, turn:0, nonce:hex(6),
+    S = { v:1, seed:seed, deck:deck, deck0:deck.slice(), owners:v, turn:0, nonce:hex(6),
+          pending:null, reshuffled:false,
           slotOwner:Array(N).fill(null), log:[],
           commit: await sha256(seed + '|' + deck.join(',')),
           started: new Date().toISOString() };
@@ -291,6 +294,7 @@ function hostView(){
 }
 
 function turnPanel(){
+  if(S.pending) return keepPanel();
   const t = S.turn, name = S.owners[t], pool = avail(), draw = drawCount(t);
   const p = el('<div class="panel hot"><h2>Turn ' + (t+1) + ' &mdash; ' + esc(name) + '</h2></div>');
 
@@ -305,7 +309,7 @@ function turnPanel(){
 
   const link = linkFor(enc({ v:1, n:name, t:t, d:draw, s:shuffle(pool), k:S.nonce }));
   const announce = name + ", you're up! " + pool.length + ' cards left'
-    + (draw === 3 ? ' - pick any 3, keep 1.' : ' - pick 1.') + '\n' + link;
+    + (draw === 3 ? ' - pick any 3 and I will show you what they are.' : ' - pick 1.') + '\n' + link;
 
   p.appendChild(el('<p style="margin-top:0"><span class="step">1</span>Send <b>'
     + esc(name) + '</b> their turn link.</p>'));
@@ -331,6 +335,10 @@ function turnPanel(){
       + (draw === 1 ? '' : 's') + ' drawn, got ' + drew.length + '.');
     if(new Set(drew).size !== drew.length) return fail('That code picks the same card twice.');
     if(!drew.every(i => pool.indexOf(i) >= 0)) return fail('That code names a card that is not in the pool.');
+    if(draw > 1){                        // Owner 1 has still to choose among the three
+      S.pending = { turn:t, drew:drew };
+      save(); hostView(); return;
+    }
     if(drew.indexOf(r.kept) < 0) return fail('The kept card is not one of the drawn cards.');
     commit(t, drew, r.kept); hostView();
   };
@@ -340,7 +348,52 @@ function turnPanel(){
     + ' not responding? Pick for them</summary></details>');
   const host = el('<div style="margin-top:12px"></div>');
   det.appendChild(host);
-  picker(host, pool, draw, (drew, kept) => { commit(t, drew, kept); hostView(); });
+  picker(host, pool, draw, (drew, kept) => {
+    if(draw > 1){ S.pending = { turn:t, drew:drew }; save(); }
+    else commit(t, drew, kept);
+    hostView();
+  });
+  p.appendChild(det);
+  return p;
+}
+
+/* Phase 2 of turn 1: the three drawn cards go back to the owner FACE-UP to choose from. */
+function keepPanel(){
+  const t = S.pending.turn, drew = S.pending.drew, name = S.owners[t];
+  const p = el('<div class="panel hot"><h2>Turn ' + (t+1) + ' &mdash; ' + esc(name)
+    + ' is choosing</h2></div>');
+  p.appendChild(el('<p style="margin-top:0"><b>' + esc(name) + '</b> drew <b>'
+    + drew.map(i => S.deck[i]).join('</b>, <b>') + '</b>. '
+    + 'Send the link below so they can see those three and keep one.</p>'));
+
+  const cards = shuffle(drew).map(i => ({ i:i, x:S.deck[i] }));
+  const link = linkFor(enc({ v:1, n:name, t:t, k:S.nonce, c:cards }));
+  const announce = name + ', here are your 3 cards. Keep one:\n' + link;
+  p.appendChild(block('Send this to ' + name, announce, smsBtn(announce, 'Open in Messages')));
+
+  p.appendChild(el('<p style="margin:20px 0 0"><span class="step">2</span>'
+    + 'Paste the code they send back.</p>'));
+  const ta = el('<textarea rows="2" placeholder="Paste the code from ' + esc(name) + '"></textarea>');
+  const err = el('<div class="err hide"></div>');
+  const sub = el('<button class="go" style="margin-top:8px">Submit code</button>');
+  sub.onclick = () => {
+    err.classList.add('hide');
+    const fail = m => { err.textContent = m; err.classList.remove('hide'); };
+    let r = null;
+    try{ r = dec(ta.value.trim()); }catch(e){}
+    if(!r || r.v !== 1) return fail('That code is not readable. Ask them to copy it again.');
+    if(r.k !== S.nonce) return fail('That code is from a different draft.');
+    if(r.t !== t) return fail('That code is for a different turn.');
+    if(drew.indexOf(r.kept) < 0) return fail('That code keeps a card they were not shown.');
+    commit(t, drew, r.kept); hostView();
+  };
+  p.appendChild(ta); p.appendChild(sub); p.appendChild(err);
+
+  const det = el('<details><summary>' + esc(name)
+    + ' not responding? Choose for them</summary></details>');
+  const host = el('<div style="margin-top:12px"></div>');
+  det.appendChild(host);
+  keepPicker(host, cards, kept => { commit(t, drew, kept); hostView(); });
   p.appendChild(det);
   return p;
 }
@@ -350,6 +403,10 @@ function commit(turn, drew, kept){
   S.log.push({ turn:turn, owner:S.owners[turn], drew:drew, kept:kept,
                value:S.deck[kept], at:new Date().toISOString() });
   S.turn = turn + 1;
+  S.pending = null;
+  // Owner 1 saw the two cards they handed back, so the pool is shuffled again -
+  // the same as sliding those cards into the deck at the table.
+  if(turn === 0 && drew.length > 1) reshuffleRemaining();
   save();
   if(S.turn === N - 1 && avail().length === 1){       // last owner is automatic
     const last = avail()[0];
@@ -359,6 +416,13 @@ function commit(turn, drew, kept){
     S.turn = N;
     save();
   }
+}
+
+function reshuffleRemaining(){
+  const slots = avail();
+  const vals = shuffle(slots.map(i => S.deck[i]));
+  slots.forEach((slot, i) => { S.deck[slot] = vals[i]; });
+  S.reshuffled = true;
 }
 
 function boardPanel(){
@@ -404,8 +468,13 @@ function finalPanel(){
   p.appendChild(block('Post this to the league', 'FINAL DRAFT ORDER\n\n' + order));
   const det = el('<details><summary>Proof the deck was never changed</summary></details>');
   det.appendChild(el('<p class="muted">Anyone can SHA-256 the string below and match it against '
-    + 'the commit hash you posted before picking started.</p>'));
-  det.appendChild(el('<div class="msg mono">' + esc(S.seed + '|' + S.deck.join(',')) + '</div>'));
+    + 'the commit hash you posted before picking started. That is the deck as it was dealt '
+    + 'at the start.</p>'));
+  det.appendChild(el('<div class="msg mono">'
+    + esc(S.seed + '|' + (S.deck0 || S.deck).join(',')) + '</div>'));
+  if(S.reshuffled) det.appendChild(el('<p class="muted">After Owner 1 handed back their two '
+    + 'unwanted cards, the remaining cards were shuffled again, exactly as they would be at '
+    + 'the table. So the finishing order below is not a straight read of that opening deck.</p>'));
   det.appendChild(el('<div class="muted">Commit hash</div>'));
   det.appendChild(el('<div class="msg mono">'
     + esc(S.commit || 'unavailable - the page was opened over file://') + '</div>'));
@@ -441,22 +510,76 @@ function ownerView(p){
   const a = app(); a.innerHTML = '';
   a.appendChild(el('<h1>' + esc(p.n) + ", you're up</h1>"));
   a.appendChild(el('<p class="sub">' + p.s.length + ' cards left in the pool. '
-    + (p.d === 3 ? 'Pick any <b>3</b>, then keep <b>1</b>.' : 'Pick <b>1</b> card.')
+    + (p.d === 3
+        ? 'Pick any <b>3</b>. Paul will send them straight back face-up so you can keep the one you want.'
+        : 'Pick <b>1</b> card.')
     + ' They are face-down. Nobody knows what is on them.</p>'));
   const panel = el('<div class="panel hot"></div>');
   a.appendChild(panel);
   picker(panel, p.s, p.d, (drew, kept) => {
     const code = enc({ v:1, t:p.t, k:p.k, drew:drew, kept:kept });
     panel.innerHTML = '';
-    panel.appendChild(el('<h2>Card locked in</h2>'));
-    panel.appendChild(el('<p>Your card is claimed. Send this code to Paul and he will '
-      + 'tell you your draft pick.</p>'));
+    panel.appendChild(el('<h2>' + (p.d > 1 ? 'Three cards drawn' : 'Card locked in') + '</h2>'));
+    panel.appendChild(el('<p>' + (p.d > 1
+      ? 'Send this code to Paul. He will send your 3 cards straight back, face-up, '
+        + 'so you can choose which one to keep.'
+      : 'Your card is claimed. Send this code to Paul and he will tell you your draft pick.')
+      + '</p>'));
     panel.appendChild(block('Send this to Paul', code, smsBtn(code, 'Open in Messages')));
     panel.appendChild(el('<p class="muted">Nothing else to do. Do not reload this page.</p>'));
   });
 }
 
-/* ---- shared picking UI: draw N cards, then keep one ---- */
+/* ================= OWNER, PHASE 2: the three cards face-up ================= */
+function revealView(p){
+  const a = app(); a.innerHTML = '';
+  a.appendChild(el('<h1>' + esc(p.n) + ', here are your 3 cards</h1>'));
+  a.appendChild(el('<p class="sub">Keep the one you want. The other two go back into the '
+    + 'pool for everyone else. Lower is better - 1 is the first overall pick.</p>'));
+  const panel = el('<div class="panel hot"></div>');
+  a.appendChild(panel);
+  keepPicker(panel, p.c, kept => {
+    const code = enc({ v:1, t:p.t, k:p.k, kept:kept });
+    const mine = p.c.filter(c => c.i === kept)[0].x;
+    panel.innerHTML = '';
+    panel.appendChild(el('<h2>You have pick number</h2>'));
+    panel.appendChild(el('<div class="big">' + mine + '</div>'));
+    panel.appendChild(el('<p>Send this code to Paul to lock it in.</p>'));
+    panel.appendChild(block('Send this to Paul', code, smsBtn(code, 'Open in Messages')));
+    panel.appendChild(el('<p class="muted">Nothing else to do. Do not reload this page.</p>'));
+  });
+}
+
+/* ---- choose one of a handful of FACE-UP cards ---- */
+function keepPicker(mount, cards, onDone){
+  let sel = null;
+  const status = el('<p class="muted"></p>');
+  const fan = el('<div class="fan"></div>');
+  const act = el('<div class="row"></div>');
+  mount.appendChild(status); mount.appendChild(fan); mount.appendChild(act);
+
+  function render(){
+    fan.innerHTML = ''; act.innerHTML = '';
+    status.innerHTML = sel === null
+      ? 'Tap the card you want to keep.'
+      : 'Keep pick number <b>' + cards.filter(c => c.i === sel)[0].x + '</b>?';
+    cards.forEach(c => {
+      const d = el('<div class="cd pick face' + (sel === c.i ? ' sel' : '') + '">'
+        + '<span class="v">' + c.x + '</span></div>');
+      d.onclick = () => { sel = c.i; render(); };
+      fan.appendChild(d);
+    });
+    if(sel !== null){
+      const yes = el('<button class="go">Yes, keep number '
+        + cards.filter(c => c.i === sel)[0].x + '</button>');
+      yes.onclick = () => onDone(sel);
+      act.appendChild(yes);
+    }
+  }
+  render();
+}
+
+/* ---- shared picking UI: draw N cards face-down ---- */
 function picker(mount, slots, draw, onDone){
   let sel = [], keep = null, phase = 'draw';
   const status = el('<p class="muted"></p>');
@@ -485,37 +608,25 @@ function picker(mount, slots, draw, onDone){
       if(draw > 1){
         const b = el('<button class="primary">Take these ' + draw + ' cards</button>');
         b.disabled = sel.length !== draw;
-        b.onclick = () => { phase = 'keep'; render(); };
+        b.onclick = () => { phase = 'confirm'; render(); };
         act.appendChild(b);
       }
     }
 
-    else if(phase === 'keep'){
-      status.innerHTML = 'Now tap the <b>one</b> you want to keep. '
-        + 'The other two go back into the pool.';
-      sel.forEach(id => {
-        const c = el('<div class="cd pick sel"></div>');
-        c.onclick = () => { keep = id; phase = 'confirm'; render(); };
+    else {
+      status.innerHTML = draw > 1
+        ? 'Draw these 3? You will see what they are next.'
+        : 'Keep this card?';
+      sel.forEach(() => {
+        const c = el('<div class="cd keep">?</div>');
+        if(draw === 1) c.style.maxWidth = '110px';
         fan.appendChild(c);
       });
-      const b = el('<button class="small">Choose different cards</button>');
-      b.onclick = () => { sel = []; phase = 'draw'; render(); };
-      act.appendChild(b);
-    }
-
-    else {
-      status.innerHTML = 'Keep this card?';
-      const c = el('<div class="cd keep">?</div>');
-      c.style.maxWidth = '110px';
-      fan.appendChild(c);
-      const yes = el('<button class="go">Yes, lock it in</button>');
+      const yes = el('<button class="go">'
+        + (draw > 1 ? 'Yes, draw these 3' : 'Yes, lock it in') + '</button>');
       yes.onclick = () => onDone(sel.slice(), keep);
       const no = el('<button class="small">Back</button>');
-      no.onclick = () => {
-        if(draw === 1){ sel = []; keep = null; phase = 'draw'; }
-        else phase = 'keep';
-        render();
-      };
+      no.onclick = () => { sel = []; keep = null; phase = 'draw'; render(); };
       act.appendChild(yes); act.appendChild(no);
     }
   }
