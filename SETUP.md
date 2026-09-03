@@ -26,7 +26,17 @@ Unraid → **Apps** → search **duckdns** (linuxserver.io) → Install.
 
 ## 3. PocketBase
 
-Unraid → **Apps** → search **pocketbase**. If no template appeals, add a container manually:
+> **Version matters.** This needs PocketBase **v0.23 or newer** — the JavaScript hook API was
+> rewritten in 0.23 and the hooks will not load on anything older. Several Unraid templates
+> ship ancient pinned versions (`spectado/pocketbase:0.19.2` is one), so check the repository
+> tag rather than trusting the template. Built and tested against **0.40.2**.
+>
+> **The `/pb_hooks` mount is the one people miss.** Some templates only define `pb_data`,
+> `pb_public` and `pb_migrations`. Without `/pb_hooks` the server starts fine and every
+> `/api/dop/*` route returns a PocketBase 404, because no route was ever registered.
+
+Unraid → **Apps** → search **pocketbase**. Whichever template you pick, set it up to match this
+exactly — add any Path rows the template is missing:
 
 | Setting | Value |
 |---|---|
@@ -37,22 +47,42 @@ Unraid → **Apps** → search **pocketbase**. If no template appeals, add a con
 | Path | `/mnt/user/appdata/pocketbase/pb_hooks` → `/pb_hooks` |
 | Path | `/mnt/user/appdata/pocketbase/pb_public` → `/pb_public` |
 
-Then copy this repo's files onto the server:
+Verify all three mounts landed before you go further:
 
-```
-pb_hooks/lib.js        ->  /mnt/user/appdata/pocketbase/pb_hooks/lib.js
-pb_hooks/main.pb.js    ->  /mnt/user/appdata/pocketbase/pb_hooks/main.pb.js
-pb_public/index.html   ->  /mnt/user/appdata/pocketbase/pb_public/index.html
+```bash
+docker inspect pocketbase --format '{{range .Mounts}}[{{.Source}} -> {{.Destination}}] {{end}}'
 ```
 
-Start the container, then from any machine on your LAN check:
+Then pull this repo's files onto the server. Open the Unraid **Terminal** (`>_`, top right)
+and paste:
+
+```bash
+mkdir -p /mnt/user/appdata/pocketbase/pb_hooks /mnt/user/appdata/pocketbase/pb_public
+cd /mnt/user/appdata/pocketbase
+B=https://raw.githubusercontent.com/pmelgar21/DraftOrderPicker/main
+curl -fsSL -o pb_hooks/lib.js      $B/pb_hooks/lib.js
+curl -fsSL -o pb_hooks/main.pb.js  $B/pb_hooks/main.pb.js
+curl -fsSL -o pb_public/index.html $B/pb_public/index.html
+ls -l pb_hooks pb_public
+```
+
+Expect roughly 6 KB, 7.5 KB and 24 KB.
+
+**Restart the container after copying.** Hooks are registered at startup, so files dropped in
+while it is running are ignored until it restarts.
+
+Then from any machine on your LAN check:
 
 ```bash
 curl http://TOWER-IP:8090/api/dop/health
 ```
 
-You want `{"ok":true,"hasDraft":false,...}`. If you get a 404 the hooks did not load — check
-the container log and the `pb_hooks` mount.
+You want `{"ok":true,"hasDraft":false,...}`.
+
+A reply of `{"code":404,"message":"Not Found."}` is PocketBase itself answering, so the server
+is healthy and only the hooks are missing. In order of likelihood: no `/pb_hooks` mount, a
+PocketBase older than 0.23, or the container was not restarted after the files were copied.
+`docker logs pocketbase --tail 40` names the file it failed on.
 
 **Set the superuser password now.** Open `http://TOWER-IP:8090/_/` and create the account
 before anything is exposed to the internet.
