@@ -1,89 +1,97 @@
 # Draft Order Picker
 
-Runs the league's card-draw draft-order ritual remotely, for owners who can't make the draft party.
-
-**Live app:** https://pmelgar21.github.io/DraftOrderPicker/
+Runs the league's card-draw draft-order ritual remotely, for owners who can't make the draft
+party. Self-hosted on Unraid — see **[SETUP.md](SETUP.md)** to deploy it.
 
 ## The rule it implements
 
-- **Owner 1** picks any **3** of the 12 face-down cards, then **sees all three face-up** and
-  keeps the one they want; the other 2 go back into the pool, which is reshuffled.
+- **Owner 1** picks any **3** of the 12 face-down cards, sees all three, and keeps the one they
+  want. The other 2 go back into the pool, which is then reshuffled.
 - **Owners 2–11** each draw exactly **1** card. Owner 11 is choosing from the last 2.
 - **Owner 12** gets the leftover card automatically.
 
 Twelve cards, twelve owners, no leftovers.
 
-## How to run the draft
+## How a draft runs
 
-**Setup (once).** Open the app, type the 12 owner names in the order they'll pick, hit
-**Shuffle deck and start**. The deck is shuffled with `crypto.getRandomValues` and lives only
-in your browser.
+You set it up once and then do nothing.
 
-Optionally hit **Copy commit hash** and post it to the group chat before anyone picks. It's a
-SHA-256 fingerprint of the deck as first dealt. At the end the app shows that deck, so anyone
-can re-hash it and confirm it is the one you started from.
+1. Open the site, enter the 12 owner names in picking order, hit **Shuffle deck and start**.
+2. Copy the 12 owner links and send each owner theirs. Bookmark your host link.
+3. That's it. Owners pick whenever they get to it; your board updates by itself.
 
-**Each turn — two messages, no back and forth.**
+A link only works on that owner's turn, so you can send all 12 up front. An owner who opens
+theirs early sees how many picks are ahead of them, and the page comes alive on their turn.
+Nobody sends anything back to you — they pick, they see their number, and your board already
+knows.
 
-1. Copy the group-chat message and post it. It names who's up and carries their turn link.
-2. They open it, tap cards, and see their pick number right there on screen. They send you
-   back a short code.
-3. Paste the code into **Submit code**. That's it — they already know their pick, so there is
-   nothing for you to send back.
+If someone goes quiet, **Take their turn** on the host board draws for them and keeps the best
+card on offer.
 
-Owner 1's turn works the same way: they tap 3 cards, each turns over as they go, and once all
-three are up they keep whichever they want.
+The bare site address (no token) is a read-only board that's safe to post in the group chat.
 
-If someone goes dark, open **"not responding? Pick for them"** and take their turn from your
-own screen. The draft never blocks on one person.
+## Why there's a server
 
-**The end.** Owner 12's card is assigned automatically. **Post this to the league** gives you
-the final 1–12 order ready to paste.
+Two things the league wanted are impossible without one:
 
-## Back it up
+**Free selection of any 3 of 12.** For a browser to flip whichever card you touch, it would have
+to hold all 12 values — and anyone could then read the deck and take pick #1. Here the browser
+holds nothing. It sends up which slots you chose, and the server sends back only those cards.
+The selection is recorded *before* any value is returned, so reloading can't re-roll a hand you
+don't like.
 
-The deck exists only in your browser, so the app keeps three copies: `localStorage`, the host
-page's own URL (bookmark it), and a **backup code** you can copy. Text the backup code to
-yourself once — pasting it into **Restore a draft** rebuilds the draft on any device.
+**No texting codes around.** Two browsers with no shared storage have no way to reach each
+other. The server is what lets an owner's pick land on your board without anyone relaying it.
 
-## What owners can and can't see
+The deck never leaves the server. Nothing an owner can open, decode, or inspect reveals another
+owner's card.
 
-A turn link carries **only the cards that owner was dealt** — one card, or three for Owner 1 —
-and never the deck. So an owner who decodes their own link learns their own number a few seconds
-early and nothing else. Nobody can see another owner's card, or which pool card is the number 1
-pick.
+## Fairness
 
-This is what lets the reveal happen instantly in their browser with no server: the app decides
-which cards they get at the moment it builds the link, exactly as the cards are already
-face-down and settled on a table before anyone reaches for them. Which rectangle they tap is
-ceremony, and the odds are identical either way.
+At setup the app publishes a SHA-256 **commit hash** of the shuffled deck. Post it to the group
+chat before anyone picks; at the end the app reveals the deck itself, so anyone can re-hash it
+and confirm it's the one you started from.
 
-A hand-edited code claiming a card they were not dealt is rejected, as are codes from another
-draft, from another turn, or already used.
+Because Owner 1 sees the two cards they hand back, the unclaimed pool is dealt again at that
+point — the same as sliding those two into the deck at the table. So what Owner 1 saw tells them
+nothing about anyone else's card. The proof panel says so explicitly.
 
-Because Owner 1 does see the two cards they hand back, the remaining pool is reshuffled at that
-point — the same as sliding those cards into the deck. So what they saw tells them nothing about
-anyone else's card. The commit hash still covers the deck as first dealt; the proof panel says
-so.
+Shuffling is Fisher–Yates over rejection-sampled random numbers, so every order is equally
+likely; a plain modulo would quietly favour the low cards.
 
-## Architecture
+## Layout
 
-Single self-contained `index.html` — embedded CSS and JS, no build step, no dependencies, no
-backend. Three views off the URL hash: setup/host (no hash), owner turn (`#t=`), host restore
-(`#host=`). An owner's turn is a single page load — no round trip mid-turn.
+| Path | What it is |
+|---|---|
+| `pb_hooks/main.pb.js` | HTTP API — the only thing that can see the deck |
+| `pb_hooks/lib.js` | Shared server logic: shuffling, rules, state on disk |
+| `pb_public/index.html` | The whole front end — setup, host board, owner view, public board |
+| `index.html` | Older self-contained fallback needing no server (see below) |
+| `SETUP.md` | Unraid + DuckDNS + PocketBase deployment |
 
-Key functions in the `<script>` block:
+PocketBase runs each route handler in an isolated VM with no access to outer scope, which is why
+shared code lives in `lib.js` and every handler `require()`s it. The whole draft is one small
+JSON document in `pb_data/` — there is no schema to create. Turns are strictly sequential and a
+token only works on its owner's turn, so there is no concurrent writer to race with.
 
-- `shuffle` / `randInt` — Fisher–Yates over `crypto.getRandomValues`, rejection-sampled so it's unbiased
-- `drawCount(turn)` — the whole house rule: 3 on turn 0, otherwise 1
-- `commit(turn, drew, kept)` — claims the kept slot, returns the rest to the pool, auto-assigns the last card
-- `offerFor(turn)` — deals this turn's cards once and stores them, so the link never changes
-- `reshuffleRemaining()` — re-deals values across unclaimed slots after Owner 1 sees their three
-- `drawPicker(mount, poolSize, cards, onDone)` — the owner's whole turn: tap, flip, keep
-- `keepPicker(mount, cards, onDone)` — face-up chooser, used when the host takes a turn
-- `turnPanel` — generates turn links and validates returned codes
-- `enc` / `dec` — base64url JSON for links, codes, and backups
+### API
 
-State (`S`): `deck` (slot → pick number, live), `deck0` (as first dealt, what `commit` hashes),
-`owners` (in picking order), `slotOwner`, `turn`, `log`, `offer` (the cards dealt for the current
-turn), `reshuffled`, `seed`, `commit`, `nonce`.
+| Route | Who | Does |
+|---|---|---|
+| `GET /api/dop/health` | anyone | Is it alive, is there a draft |
+| `POST /api/dop/new` | first caller, then host | Creates the draft, returns host + owner tokens |
+| `GET /api/dop/host?h=` | host | Everything, deck included |
+| `GET /api/dop/board` | anyone | Names and revealed picks only |
+| `GET /api/dop/turn?t=` | one owner | What that owner should see now |
+| `POST /api/dop/draw` | one owner | Commit to slots, get back only those values |
+| `POST /api/dop/keep` | one owner | Keep one drawn card |
+| `POST /api/dop/force` | host | Take a silent owner's turn |
+| `POST /api/dop/reset` | host | Start over |
+
+### Fallback
+
+`index.html` at the repo root is the earlier version that needs no server at all — one
+self-contained file, deployed at <https://pmelgar21.github.io/DraftOrderPicker/>. It works
+entirely in one browser, at the cost of the host relaying codes by text and the app dealing
+Owner 1's three cards rather than letting them choose. Kept as insurance in case the server
+isn't ready in time.

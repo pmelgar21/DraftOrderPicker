@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Draft Order Picker</title>
+<style>
+  :root{
+    --bg:#0a1020; --panel:#121a30; --panel2:#1b2542; --line:#2c3a5c;
+    --ink:#e9edf6; --dim:#8d9bbd; --accent:#f2853a; --green:#3fb56b; --red:#e5604d;
+    --card:#1d2947; --card2:#131c33;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:16px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-text-size-adjust:100%}
+  .wrap{max-width:860px;margin:0 auto;padding:20px 16px 64px}
+  h1{font-size:24px;margin:0 0 4px;letter-spacing:-.4px}
+  h2{font-size:15px;text-transform:uppercase;letter-spacing:1.2px;color:var(--dim);
+    margin:0 0 12px;font-weight:700}
+  .sub{color:var(--dim);margin:0 0 24px;font-size:14px}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:18px;margin-bottom:16px}
+  .panel.hot{border-color:var(--accent);box-shadow:0 0 0 3px rgba(242,133,58,.11)}
+  button{font:inherit;font-weight:650;cursor:pointer;border-radius:10px;padding:11px 16px;
+    border:1px solid var(--line);background:var(--panel2);color:var(--ink);
+    -webkit-tap-highlight-color:transparent}
+  button:hover:not(:disabled){border-color:var(--dim)}
+  button:disabled{opacity:.4;cursor:not-allowed}
+  button.primary{background:var(--accent);color:#2a1202;border-color:var(--accent)}
+  button.go{background:var(--green);color:#04180c;border-color:var(--green)}
+  button.small{padding:7px 11px;font-size:13px}
+  input,textarea{font:inherit;width:100%;background:var(--card2);color:var(--ink);
+    border:1px solid var(--line);border-radius:9px;padding:10px 12px}
+  input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .muted{color:var(--dim);font-size:13px}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:12px;word-break:break-all}
+  .err{color:var(--red);font-size:14px;margin-top:10px}
+  .ok{color:var(--green)}
+
+  .names{display:grid;gap:8px}
+  .nrow{display:grid;grid-template-columns:34px 1fr auto auto;gap:6px;align-items:center}
+  .nrow .n{color:var(--dim);font-size:13px;text-align:right;font-variant-numeric:tabular-nums}
+
+  .fan{display:grid;grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:10px;margin:14px 0}
+  .cd{aspect-ratio:2/3;border-radius:11px;border:2px solid var(--line);
+    background:repeating-linear-gradient(45deg,var(--card) 0 7px,var(--card2) 7px 14px);
+    display:flex;align-items:center;justify-content:center;font-size:26px;
+    transition:transform .16s,border-color .16s,opacity .16s;user-select:none;position:relative}
+  .cd.pick{cursor:pointer}
+  .cd.pick:hover{transform:translateY(-5px);border-color:var(--dim)}
+  .cd.sel{border-color:var(--accent);transform:translateY(-9px);
+    box-shadow:0 8px 18px rgba(0,0,0,.45)}
+  .cd .v{font-size:34px;font-weight:800;color:var(--accent)}
+  .cd .who{position:absolute;bottom:5px;left:0;right:0;text-align:center;font-size:9px;
+    color:var(--dim);padding:0 3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .cd.owned{background:var(--card);border-color:var(--accent)}
+  .cd.face{background:var(--card);border-color:var(--accent);animation:flip .3s ease-out}
+  .cd.face.sel{border-color:var(--green);box-shadow:0 8px 18px rgba(0,0,0,.45)}
+  .cd.face.sel .v{color:var(--green)}
+  .cd.dim{opacity:.3}
+  @keyframes flip{from{transform:rotateY(90deg) scale(.88)}to{transform:none}}
+
+  table{width:100%;border-collapse:collapse;font-size:14px}
+  th{text-align:left;color:var(--dim);font-size:11px;text-transform:uppercase;
+    letter-spacing:1px;padding:0 8px 8px;font-weight:700}
+  td{padding:9px 8px;border-top:1px solid var(--line)}
+  td.pk{font-weight:800;color:var(--accent);font-variant-numeric:tabular-nums;width:46px;
+    font-size:18px}
+  .tag{font-size:11px;padding:2px 8px;border-radius:99px;border:1px solid var(--line);
+    color:var(--dim);white-space:nowrap}
+  .tag.up{border-color:var(--accent);color:var(--accent)}
+  .tag.done{border-color:var(--green);color:var(--green)}
+
+  .msg{background:var(--card2);border:1px solid var(--line);border-radius:9px;
+    padding:11px 12px;font-size:14px;white-space:pre-wrap;word-break:break-word;margin:8px 0}
+  details{border-top:1px solid var(--line);padding-top:12px;margin-top:12px}
+  summary{cursor:pointer;color:var(--dim);font-size:13px}
+  .big{font-size:76px;font-weight:800;color:var(--accent);line-height:1;
+    margin:10px 0 18px;font-variant-numeric:tabular-nums}
+  .hide{display:none}
+  .live{display:inline-block;width:7px;height:7px;border-radius:99px;background:var(--green);
+    margin-right:7px;vertical-align:middle;animation:pulse 2s infinite}
+  @keyframes pulse{50%{opacity:.25}}
+  @media(max-width:520px){
+    .fan{grid-template-columns:repeat(auto-fill,minmax(66px,1fr));gap:8px}
+    .wrap{padding:16px 12px 56px}
+    .big{font-size:64px}
+  }
+</style>
+</head>
+<body>
+<div class="wrap" id="app"></div>
+
+<script>
+"use strict";
+
+const N = 12;
+const API = "/api/dop";
+
+/* ---------- server ---------- */
+async function api(path, body){
+  const res = await fetch(API + path, body
+    ? { method:"POST", headers:{"Content-Type":"application/json"}, body:JSON.stringify(body) }
+    : {});
+  let data = null;
+  try{ data = await res.json(); }catch(e){}
+  if(!res.ok){
+    const err = new Error((data && (data.message || data.error)) || ("Server error " + res.status));
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+/* ---------- dom helpers ---------- */
+const el = h => { const t = document.createElement('template'); t.innerHTML = h.trim(); return t.content.firstElementChild; };
+const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const app = () => document.getElementById('app');
+const origin = () => location.origin + location.pathname.replace(/index\.html$/, '');
+
+function copyBtn(label, getText){
+  const b = el('<button class="small">' + esc(label) + '</button>');
+  b.onclick = async () => {
+    const t = getText();
+    try{ await navigator.clipboard.writeText(t); }
+    catch(e){
+      const ta = document.createElement('textarea');
+      ta.value = t; document.body.appendChild(ta); ta.select();
+      try{ document.execCommand('copy'); }catch(_){}
+      ta.remove();
+    }
+    const old = b.textContent;
+    b.textContent = 'Copied'; b.classList.add('ok');
+    setTimeout(() => { b.textContent = old; b.classList.remove('ok'); }, 1400);
+  };
+  return b;
+}
+function errBox(e){
+  return el('<div class="panel"><h1>Something went wrong</h1><p class="sub">'
+    + esc(e && e.message ? e.message : String(e)) + '</p></div>');
+}
+
+/* ---------- polling ---------- */
+let timer = null;
+function stopPoll(){ if(timer){ clearInterval(timer); timer = null; } }
+function poll(fn, ms){ stopPoll(); timer = setInterval(fn, ms); }
+
+/* ================= ROUTER ================= */
+async function route(){
+  stopPoll();
+  const h = location.hash;
+  if(h.indexOf('#o=') === 0) return ownerView(h.slice(3));
+  if(h.indexOf('#h=') === 0) return hostView(h.slice(3));
+  return landingView();
+}
+
+/* ================= LANDING ================= */
+async function landingView(){
+  const a = app(); a.innerHTML = '';
+  let board = null;
+  try{ board = await api('/board'); }
+  catch(e){ if(e.status !== 404) { a.appendChild(errBox(e)); return; } }
+
+  if(!board) return setupView();
+
+  a.appendChild(el('<h1>Draft Order Picker</h1>'));
+  a.appendChild(el('<p class="sub">' + (board.done
+    ? 'The draft order is set.'
+    : '<span class="live"></span>Waiting on <b>' + esc(board.upNow) + '</b> &middot; turn '
+      + (board.turn + 1) + ' of ' + N) + '</p>'));
+  a.appendChild(publicBoard(board));
+  poll(async () => {
+    try{ const b = await api('/board'); if(JSON.stringify(b) !== JSON.stringify(board)) route(); }
+    catch(e){}
+  }, 8000);
+}
+
+function publicBoard(board){
+  const p = el('<div class="panel"><h2>Draft order</h2></div>');
+  const byName = {};
+  board.picks.forEach(x => { byName[x.name] = x.pick; });
+  const rows = board.names.map((name, turn) => ({
+    name: name, turn: turn, pick: byName[name] === undefined ? null : byName[name]
+  }));
+  rows.sort((a,b) => (a.pick === null ? 99 : a.pick) - (b.pick === null ? 99 : b.pick)
+    || a.turn - b.turn);
+  const t = el('<table><thead><tr><th>Pick</th><th>Owner</th><th></th></tr></thead>'
+    + '<tbody></tbody></table>');
+  const tb = t.querySelector('tbody');
+  rows.forEach(r => {
+    const tag = r.pick !== null ? '<span class="tag done">picked</span>'
+      : r.turn === board.turn ? '<span class="tag up">up now</span>'
+      : '<span class="tag">turn ' + (r.turn+1) + '</span>';
+    tb.appendChild(el('<tr><td class="pk">' + (r.pick === null ? '&mdash;' : r.pick)
+      + '</td><td>' + esc(r.name) + '</td><td>' + tag + '</td></tr>'));
+  });
+  p.appendChild(t);
+  return p;
+}
+
+/* ================= SETUP ================= */
+function setupView(){
+  const a = app(); a.innerHTML = '';
+  a.appendChild(el('<h1>Draft Order Picker</h1>'));
+  a.appendChild(el('<p class="sub">No draft yet. Set one up - you only do this once.</p>'));
+
+  const p = el('<div class="panel"><h2>Owners, in card-picking order</h2></div>');
+  p.appendChild(el('<p class="muted" style="margin-top:-6px">Owner 1 draws 3 cards and keeps 1. '
+    + 'Owners 2 through 11 draw one card each. Owner 12 gets the last card.</p>'));
+
+  const names = el('<div class="names"></div>');
+  for(let i = 0; i < N; i++){
+    const r = el('<div class="nrow"><div class="n">' + (i+1) + '.</div>'
+      + '<input type="text" placeholder="Owner ' + (i+1) + '" autocomplete="off">'
+      + '<button class="small" title="Move up">&#8593;</button>'
+      + '<button class="small" title="Move down">&#8595;</button></div>');
+    const btns = r.querySelectorAll('button');
+    btns[0].onclick = () => swap(i, i-1);
+    btns[1].onclick = () => swap(i, i+1);
+    if(i === 0) btns[0].disabled = true;
+    if(i === N-1) btns[1].disabled = true;
+    names.appendChild(r);
+  }
+  const inputs = () => Array.from(names.querySelectorAll('input'));
+  function swap(i, j){
+    if(j < 0 || j >= N) return;
+    const v = inputs().map(x => x.value); const t = v[i]; v[i] = v[j]; v[j] = t;
+    inputs().forEach((x,k) => x.value = v[k]);
+  }
+  p.appendChild(names);
+
+  const ctl = el('<div class="row" style="margin-top:16px"></div>');
+  const start = el('<button class="primary">Shuffle deck and start draft</button>');
+  const demo = el('<button class="small">Fill demo names</button>');
+  demo.onclick = () => {
+    const d = ['Paul','Marcus','Dave','Tony','Chris','Nick','Sam','Joe','Ryan','Mike','Alex','Ben'];
+    inputs().forEach((x,k) => x.value = d[k]);
+  };
+  const err = el('<div class="err hide"></div>');
+  start.onclick = async () => {
+    err.classList.add('hide');
+    start.disabled = true;
+    try{
+      const out = await api('/new', { names: inputs().map(x => x.value) });
+      try{ localStorage.setItem('dop.host', out.hostToken); }catch(e){}
+      location.hash = '#h=' + out.hostToken;
+    }catch(e){
+      err.textContent = e.message; err.classList.remove('hide'); start.disabled = false;
+    }
+  };
+  ctl.appendChild(start); ctl.appendChild(demo);
+  p.appendChild(ctl); p.appendChild(err);
+  a.appendChild(p);
+
+  let saved = null;
+  try{ saved = localStorage.getItem('dop.host'); }catch(e){}
+  if(saved){
+    const back = el('<div class="panel"><h2>Your host link</h2></div>');
+    back.appendChild(el('<p class="muted" style="margin-top:-6px">This browser has a host token '
+      + 'saved from an earlier draft.</p>'));
+    const b = el('<button class="small">Open host board</button>');
+    b.onclick = () => { location.hash = '#h=' + saved; };
+    back.appendChild(b);
+    app().appendChild(back);
+  }
+}
+
+/* ================= HOST ================= */
+async function hostView(token){
+  let h;
+  try{ h = await api('/host?h=' + encodeURIComponent(token)); }
+  catch(e){ app().innerHTML = ''; app().appendChild(errBox(e)); return; }
+  try{ localStorage.setItem('dop.host', token); }catch(e){}
+
+  const a = app(); a.innerHTML = '';
+  const b = h.board;
+  a.appendChild(el('<h1>Draft Order Picker</h1>'));
+  a.appendChild(el('<p class="sub">' + (b.done
+    ? 'Draft order is set. All 12 cards are in.'
+    : '<span class="live"></span>Turn ' + (b.turn+1) + ' of ' + N + ' &middot; waiting on <b>'
+      + esc(b.upNow) + '</b> &middot; ' + b.poolSize + ' card'
+      + (b.poolSize === 1 ? '' : 's') + ' left') + '</p>'));
+
+  if(b.done) a.appendChild(finalPanel(h));
+  else a.appendChild(waitingPanel(h, token));
+
+  a.appendChild(poolPanel(h));
+  a.appendChild(publicBoard(b));
+  a.appendChild(linksPanel(h, token));
+
+  if(!b.done) poll(async () => {
+    try{
+      const fresh = await api('/host?h=' + encodeURIComponent(token));
+      if(fresh.board.turn !== b.turn) hostView(token);
+    }catch(e){}
+  }, 5000);
+}
+
+function waitingPanel(h, token){
+  const b = h.board;
+  const p = el('<div class="panel hot"><h2>Waiting on ' + esc(b.upNow) + '</h2></div>');
+  p.appendChild(el('<p style="margin-top:0">Their link is live and this board updates by '
+    + 'itself the moment they pick. There is nothing for you to do.</p>'));
+  if(h.pending && h.pending.turn === b.turn){
+    p.appendChild(el('<p class="muted">They have drawn their card'
+      + (h.pending.slots.length > 1 ? 's' : '') + ' and are choosing now.</p>'));
+  }
+  const det = el('<details><summary>' + esc(b.upNow)
+    + ' gone quiet? Take their turn</summary></details>');
+  det.appendChild(el('<p class="muted">This draws for them and keeps the best card on '
+    + 'offer, which is what they would have done.</p>'));
+  const btn = el('<button class="small">Take ' + esc(b.upNow) + "'s turn</button>");
+  const err = el('<div class="err hide"></div>');
+  btn.onclick = async () => {
+    if(!confirm('Take ' + b.upNow + "'s turn for them? This cannot be undone.")) return;
+    btn.disabled = true;
+    try{ await api('/force', { hostToken: token }); hostView(token); }
+    catch(e){ err.textContent = e.message; err.classList.remove('hide'); btn.disabled = false; }
+  };
+  det.appendChild(btn); det.appendChild(err);
+  p.appendChild(det);
+  return p;
+}
+
+function poolPanel(h){
+  const p = el('<div class="panel"><h2>The pool</h2></div>');
+  const fan = el('<div class="fan"></div>');
+  h.slotOwner.forEach((owner, i) => {
+    fan.appendChild(owner === null
+      ? el('<div class="cd"></div>')
+      : el('<div class="cd owned"><span class="v">' + h.deck[i] + '</span>'
+          + '<span class="who">' + esc(h.board.names[owner]) + '</span></div>'));
+  });
+  p.appendChild(fan);
+  p.appendChild(el('<p class="muted" style="margin:0">Face-down cards are still in the pool. '
+    + 'Only this host page can see any of it - the deck never leaves your server.</p>'));
+  return p;
+}
+
+function linksPanel(h, token){
+  const p = el('<div class="panel"><h2>Owner links</h2></div>');
+  p.appendChild(el('<p class="muted" style="margin-top:-6px">Send each owner their own link, '
+    + 'once. A link only works on that owner\'s turn, so you can send all 12 now and never '
+    + 'touch this again.</p>'));
+
+  const lines = h.owners.map(o => o.name + ': ' + origin() + '#o=' + o.token);
+  const all = el('<div class="row" style="margin-bottom:10px"></div>');
+  all.appendChild(copyBtn('Copy all 12 links', () => lines.join('\n')));
+  all.appendChild(copyBtn('Copy commit hash', () =>
+    'Deck is shuffled and locked. Proof hash: ' + h.commit));
+  all.appendChild(copyBtn('Copy watch link (safe to share)', () => origin()));
+  p.appendChild(all);
+
+  const t = el('<table><thead><tr><th>Turn</th><th>Owner</th><th></th></tr></thead>'
+    + '<tbody></tbody></table>');
+  const tb = t.querySelector('tbody');
+  h.owners.forEach(o => {
+    const tr = el('<tr><td class="pk">' + o.turn + '</td><td>' + esc(o.name) + '</td>'
+      + '<td style="text-align:right"></td></tr>');
+    const link = origin() + '#o=' + o.token;
+    const cell = tr.children[2];
+    cell.appendChild(copyBtn('Copy link', () => link));
+    const sms = el('<a href="sms:?&body=' + encodeURIComponent(
+      o.name + ", you're up for the draft order draw: " + link)
+      + '" style="text-decoration:none;margin-left:6px"><button class="small">Text</button></a>');
+    cell.appendChild(sms);
+    tb.appendChild(tr);
+  });
+  p.appendChild(t);
+
+  const det = el('<details><summary>Host link and starting over</summary></details>');
+  det.appendChild(el('<p class="muted">Bookmark this. It is the only way back to this board.</p>'));
+  det.appendChild(el('<div class="msg mono">' + esc(origin() + '#h=' + token) + '</div>'));
+  det.appendChild(copyBtn('Copy host link', () => origin() + '#h=' + token));
+  const reset = el('<button class="small" style="margin-left:8px">Start over</button>');
+  reset.onclick = async () => {
+    if(!confirm('Delete this draft and start over? Every pick so far is lost.')) return;
+    try{
+      await api('/reset', { hostToken: token });
+      try{ localStorage.removeItem('dop.host'); }catch(e){}
+      location.hash = ''; route();
+    }catch(e){ alert(e.message); }
+  };
+  det.appendChild(reset);
+  p.appendChild(det);
+  return p;
+}
+
+function finalPanel(h){
+  const p = el('<div class="panel hot"><h2>Final draft order</h2></div>');
+  const order = h.board.picks.map(x => x.pick + '. ' + x.name).join('\n');
+  const text = 'FINAL DRAFT ORDER\n\n' + order;
+  p.appendChild(el('<div class="msg">' + esc(text) + '</div>'));
+  p.appendChild(copyBtn('Copy for the group chat', () => text));
+
+  const det = el('<details><summary>Proof the deck was never changed</summary></details>');
+  det.appendChild(el('<p class="muted">Anyone can SHA-256 the string below and match it against '
+    + 'the commit hash you posted before picking started. That is the deck as it was dealt '
+    + 'at the start.</p>'));
+  det.appendChild(el('<div class="msg mono">' + esc(h.seed + '|' + h.deck0.join(',')) + '</div>'));
+  det.appendChild(el('<div class="muted">Commit hash</div>'));
+  det.appendChild(el('<div class="msg mono">' + esc(h.commit) + '</div>'));
+  if(h.reshuffled) det.appendChild(el('<p class="muted">After Owner 1 handed back their two '
+    + 'unwanted cards, the remaining cards were shuffled again, exactly as they would be at '
+    + 'the table. So the order above is not a straight read of that opening deck.</p>'));
+  p.appendChild(det);
+  return p;
+}
+
+/* ================= OWNER ================= */
+async function ownerView(token){
+  let data;
+  try{ data = await api('/turn?t=' + encodeURIComponent(token)); }
+  catch(e){ app().innerHTML = ''; app().appendChild(errBox(e)); return; }
+
+  const v = data.view, a = app();
+  a.innerHTML = '';
+
+  if(v.stage === 'done'){
+    a.appendChild(el('<h1>' + esc(v.name) + ', you are all set</h1>'));
+    a.appendChild(el('<p class="sub">Your card is locked in. Nothing else to do.</p>'));
+    const panel = el('<div class="panel hot"></div>');
+    panel.appendChild(el('<h2>You have pick number</h2>'));
+    panel.appendChild(el('<div class="big">' + v.value + '</div>'));
+    a.appendChild(panel);
+    a.appendChild(publicBoard(data.board));
+    poll(async () => {
+      try{
+        const d = await api('/turn?t=' + encodeURIComponent(token));
+        if(d.board.turn !== data.board.turn) ownerView(token);
+      }catch(e){}
+    }, 15000);
+    return;
+  }
+
+  if(v.stage === 'waiting'){
+    a.appendChild(el('<h1>' + esc(v.name) + ', not yet</h1>'));
+    a.appendChild(el('<p class="sub"><span class="live"></span>You are up in <b>' + v.ahead
+      + '</b> pick' + (v.ahead === 1 ? '' : 's') + '. Waiting on <b>' + esc(v.upNow)
+      + '</b> right now. Leave this page open - it will come alive on your turn.</p>'));
+    a.appendChild(publicBoard(data.board));
+    poll(async () => {
+      try{
+        const d = await api('/turn?t=' + encodeURIComponent(token));
+        if(d.view.stage !== 'waiting' || d.board.turn !== data.board.turn) ownerView(token);
+      }catch(e){}
+    }, 10000);
+    return;
+  }
+
+  /* their turn */
+  a.appendChild(el('<h1>' + esc(v.name) + ", you're up</h1>"));
+  a.appendChild(el('<p class="sub">' + (v.draw > 1
+      ? 'Pick any <b>3</b> of the cards below. They turn over once you have chosen, and you '
+        + 'keep whichever you want.'
+      : 'Pick a card. It turns over straight away.')
+    + ' Lower is better - 1 is the first overall pick.</p>'));
+  const panel = el('<div class="panel hot"></div>');
+  a.appendChild(panel);
+
+  if(v.stage === 'reveal') return revealStage(panel, token, v.cards, v.draw);
+  drawStage(panel, token, v);
+}
+
+/* Choose which cards to draw. Nothing is revealed until the choice is sent. */
+function drawStage(mount, token, v){
+  const sel = [];
+  const status = el('<p class="muted"></p>');
+  const fan = el('<div class="fan"></div>');
+  const act = el('<div class="row"></div>');
+  const err = el('<div class="err hide"></div>');
+  mount.innerHTML = '';
+  mount.appendChild(status); mount.appendChild(fan); mount.appendChild(act); mount.appendChild(err);
+
+  function render(){
+    fan.innerHTML = ''; act.innerHTML = '';
+    status.innerHTML = v.draw > 1
+      ? 'Chosen <b>' + sel.length + '</b> of ' + v.draw + '. Tap to choose, tap again to change your mind.'
+      : 'Tap the card you want.';
+
+    v.slots.forEach(id => {
+      const on = sel.indexOf(id) >= 0;
+      const d = el('<div class="cd pick' + (on ? ' sel' : '') + '"></div>');
+      d.onclick = () => {
+        const at = sel.indexOf(id);
+        if(at >= 0) sel.splice(at, 1);
+        else if(sel.length < v.draw) sel.push(id);
+        render();
+      };
+      fan.appendChild(d);
+    });
+
+    const b = el('<button class="primary">' + (v.draw > 1
+      ? 'Turn these ' + v.draw + ' over' : 'Turn it over') + '</button>');
+    b.disabled = sel.length !== v.draw;
+    b.onclick = async () => {
+      b.disabled = true; err.classList.add('hide');
+      try{
+        const out = await api('/draw', { t: token, slots: sel });
+        revealStage(mount, token, out.cards, v.draw);
+      }catch(e){
+        err.textContent = e.message; err.classList.remove('hide'); b.disabled = false;
+      }
+    };
+    act.appendChild(b);
+  }
+  render();
+}
+
+/* The drawn cards, face up. Keep one. */
+function revealStage(mount, token, cards, draw){
+  let sel = cards.length === 1 ? cards[0].i : null;
+  const status = el('<p class="muted"></p>');
+  const fan = el('<div class="fan"></div>');
+  const act = el('<div class="row"></div>');
+  const err = el('<div class="err hide"></div>');
+  mount.innerHTML = '';
+  mount.appendChild(status); mount.appendChild(fan); mount.appendChild(act); mount.appendChild(err);
+
+  function render(){
+    fan.innerHTML = ''; act.innerHTML = '';
+    const chosen = cards.filter(c => c.i === sel)[0];
+    status.innerHTML = cards.length > 1 && sel === null
+      ? 'Tap the one you want to <b>keep</b>. The other two go back into the pool.'
+      : 'Keep pick number <b>' + chosen.x + '</b>?';
+
+    cards.forEach(c => {
+      const d = el('<div class="cd face' + (sel === c.i ? ' sel' : '')
+        + (cards.length > 1 ? ' pick' : '') + '"><span class="v">' + c.x + '</span></div>');
+      if(cards.length > 1) d.onclick = () => { sel = c.i; render(); };
+      fan.appendChild(d);
+    });
+
+    if(sel !== null){
+      const yes = el('<button class="go">Yes, keep number ' + chosen.x + '</button>');
+      yes.onclick = async () => {
+        yes.disabled = true; err.classList.add('hide');
+        try{
+          const out = await api('/keep', { t: token, kept: sel });
+          mount.innerHTML = '';
+          mount.appendChild(el('<h2>You have pick number</h2>'));
+          mount.appendChild(el('<div class="big">' + out.value + '</div>'));
+          mount.appendChild(el('<p>That is locked in. Nothing else to do - Paul sees it already.</p>'));
+        }catch(e){
+          err.textContent = e.message; err.classList.remove('hide'); yes.disabled = false;
+        }
+      };
+      act.appendChild(yes);
+    }
+  }
+  render();
+}
+
+window.addEventListener('hashchange', route);
+route();
+</script>
+</body>
+</html>
