@@ -59,6 +59,66 @@ nothing about anyone else's card. The proof panel says so explicitly.
 Shuffling is Fisher–Yates over rejection-sampled random numbers, so every order is equally
 likely; a plain modulo would quietly favour the low cards.
 
+## Using it again next year
+
+The app itself needs nothing. What rots is the deployment around it. In rough order of how
+likely it is to bite:
+
+**1. Is it still running at all?**
+
+```bash
+docker ps --filter name=pocketbase --format '{{.Status}} | {{.Ports}}'
+curl http://TOWER-IP:8090/api/dop/health
+```
+
+A stopped container looks exactly like a network failure from every direction — check this
+before diagnosing anything else.
+
+**2. Pin the PocketBase version before you rely on it.** The container tracks
+`ghcr.io/muchobien/pocketbase:latest`, and PocketBase rewrote its JavaScript hook API once
+already (in 0.23). If it happens again, `latest` will quietly break the hooks and every
+`/api/dop/*` route will 404 while the server looks perfectly healthy. Known-good: **0.40.2**.
+Either pin the tag, or if it breaks, roll back to a version from around this repo's last commit.
+
+**3. The TLS certificate.** NPM auto-renews it over the DuckDNS DNS challenge, which needs no
+open ports — so renewal keeps working even with the port forward closed. Check the expiry in
+NPM, or:
+
+```bash
+echo | openssl s_client -connect TOWER-IP:4443 -servername YOURSUB.duckdns.org 2>/dev/null | openssl x509 -noout -dates
+```
+
+If it lapsed, re-issue it exactly as in SETUP.md step 4 — and remember Let's Encrypt allows only
+5 failed attempts per hostname per hour.
+
+**4. Re-add the port forward** (WAN 443 → `TOWER-IP:4443`), assuming you took it down.
+
+**5. Confirm your public IP still matches.** If your ISP moved you to CGNAT since, port
+forwarding stops working and you need a Cloudflare Tunnel instead:
+
+```bash
+nslookup YOURSUB.duckdns.org 8.8.8.8   # must equal your WAN IP
+```
+
+**6. Refresh the app files** in case anything changed:
+
+```bash
+cd /mnt/user/appdata/pocketbase
+B=https://raw.githubusercontent.com/pmelgar21/DraftOrderPicker/main
+curl -fsSL -o pb_hooks/lib.js $B/pb_hooks/lib.js
+curl -fsSL -o pb_hooks/main.pb.js $B/pb_hooks/main.pb.js
+curl -fsSL -o pb_public/index.html $B/pb_public/index.html
+```
+
+Restart the container after touching `pb_hooks` (not needed for `pb_public`, but hard-refresh
+the browser).
+
+**7. Start over** to clear last year's draft, enter the new names, bookmark the host link, send
+the 12 owner links.
+
+Last year's final order lives in `pb_data/dop_state.json` until you reset — worth copying out
+first if you want the history.
+
 ## Layout
 
 | Path | What it is |
