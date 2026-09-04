@@ -534,7 +534,12 @@ function revealStage(mount, token, cards, draw){
     });
 
     if(sel !== null){
-      const yes = el('<button class="go">Yes, keep number ' + chosen.x + '</button>');
+      // Owners 2-11 are shown a single card, so there is no choice being made -
+      // they are confirming what they turned over, not picking between options.
+      const label = cards.length > 1
+        ? 'Yes, keep number ' + chosen.x
+        : 'I confirm number ' + chosen.x;
+      const yes = el('<button class="go">' + label + '</button>');
       yes.onclick = async () => {
         yes.disabled = true; err.classList.add('hide');
         try{
