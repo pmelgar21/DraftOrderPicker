@@ -185,16 +185,48 @@ gateway instead and get a misleading result.
 
 Forward **only** 443. Unraid's web GUI is on port 80 and must never be exposed.
 
-## 6. Run the draft
+## 6. Trial runs
+
+Do at least one full practice draft before the real one. Four things are worth exercising
+deliberately, because they are the ones you cannot test once it's live:
+
+**Open an owner link before that owner's turn** and leave the page sitting. It should say
+"you are up in N picks" and then come alive on its own when their turn arrives. That polling is
+what stops you chasing people all weekend.
+
+**Use "Take their turn"** on the host board at least once, so you know where it is and what it
+does before you need it under pressure.
+
+**Test on a real phone over cellular**, not just a desktop browser. Most of the league will open
+these on a phone, and that path goes through DuckDNS and the port forward rather than your LAN.
+
+**Play a run all the way to Owner 12.** Confirm the final board and the proof panel look right —
+that is what you will be pasting into the group chat.
+
+Between runs, reset from the Unraid terminal. This needs no tokens, so it works even if you have
+lost the host link:
+
+```bash
+rm -f /mnt/user/appdata/pocketbase/pb_data/dop_state.json && curl -s http://localhost:8090/api/dop/health
+```
+
+`"hasDraft":false` means it's clear. No container restart needed — the state file is read fresh
+on every request.
+
+## 7. Run the draft
 
 1. Open `https://melgardraft.duckdns.org/` — the setup screen.
 2. Enter the 12 owner names in picking order → **Shuffle deck and start**.
    **Do this immediately.** The first visitor to that page creates the draft; afterwards it is
    locked to your host token.
-3. **Bookmark the host link** (under *Host link and starting over*). It is the only way back.
-4. **Copy all 12 links**, send each owner theirs. That is the last thing you have to do.
-5. Optionally post the commit hash, and the bare `https://melgardraft.duckdns.org/` address as a
-   read-only board anyone can watch.
+3. **Bookmark the host link** (under *Host link and starting over*), before anything else. It is
+   the only way back to the board, and the only way to reach **Start over** or take a silent
+   owner's turn. Losing it is not fatal — the file delete in step 6 always works — but it costs
+   you the board and the override.
+4. **Copy all 12 owner links** somewhere safe, then send each owner theirs. That is the last
+   thing you have to do.
+5. Post the commit hash to the group chat **before anyone picks** — it is worthless afterwards.
+   The bare `https://melgardraft.duckdns.org/` address is a safe read-only board to share too.
 
 Owners pick whenever they like. Your board updates itself. Nobody sends you anything.
 

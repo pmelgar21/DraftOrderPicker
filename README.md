@@ -113,8 +113,8 @@ curl -fsSL -o pb_public/index.html $B/pb_public/index.html
 Restart the container after touching `pb_hooks` (not needed for `pb_public`, but hard-refresh
 the browser).
 
-**7. Start over** to clear last year's draft, enter the new names, bookmark the host link, send
-the 12 owner links.
+**7. Do a trial run first** (SETUP.md step 6), then **Start over** to clear it, enter the new
+names, bookmark the host link before anything else, and send the 12 owner links.
 
 Last year's final order lives in `pb_data/dop_state.json` until you reset — worth copying out
 first if you want the history.
