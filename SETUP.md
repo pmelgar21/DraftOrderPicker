@@ -1,60 +1,56 @@
 # Running it on Unraid with DuckDNS
 
-About 45 minutes end to end. You need port **443** forwarded; port 80 is not required
-because the certificate is issued over DNS.
+Deployed and working. This is the route that actually worked, with the traps that cost time
+called out — the earlier version of this guide walked into several of them.
 
-**Check this first.** In the UniFi console look at your WAN IP, then compare it with
-whatismyip.com. If they differ your ISP has you behind CGNAT, port forwarding cannot work,
-and you should use a Cloudflare Tunnel instead — say the word and I'll rewrite these steps.
+**Check this first.** Compare your UniFi WAN IP with whatismyip.com. If they differ your ISP has
+you behind CGNAT, port forwarding cannot work, and you need a Cloudflare Tunnel instead.
 
 ---
 
 ## 1. DuckDNS
 
 1. Sign in at [duckdns.org](https://www.duckdns.org) with GitHub or Google.
-2. Create a subdomain, e.g. `melgardraft` → gives you `melgardraft.duckdns.org`.
-3. Copy the **token** at the top of the page.
+2. Create a subdomain, e.g. `melgardraft` → `melgardraft.duckdns.org`.
+3. Copy the **token**.
 
 ## 2. Keep the IP updated
 
-Unraid → **Apps** → search **duckdns** (linuxserver.io) → Install.
-
-| Setting | Value |
-|---|---|
-| SUBDOMAINS | `melgardraft` |
-| TOKEN | your DuckDNS token |
+Unraid → **Apps** → **duckdns** (linuxserver.io) → Install. Set `SUBDOMAINS` to your subdomain
+and `TOKEN` to your token.
 
 ## 3. PocketBase
 
-> **Version matters.** This needs PocketBase **v0.23 or newer** — the JavaScript hook API was
-> rewritten in 0.23 and the hooks will not load on anything older. Several Unraid templates
-> ship ancient pinned versions (`spectado/pocketbase:0.19.2` is one), so check the repository
-> tag rather than trusting the template. Built and tested against **0.40.2**.
+> **Version matters.** Needs PocketBase **v0.23+** — the JS hook API was rewritten in 0.23 and
+> hooks silently fail to load on anything older. Some Unraid templates pin ancient versions
+> (`spectado/pocketbase:0.19.2`). Tested against **0.40.2**.
 >
-> **The `/pb_hooks` mount is the one people miss.** Some templates only define `pb_data`,
-> `pb_public` and `pb_migrations`. Without `/pb_hooks` the server starts fine and every
-> `/api/dop/*` route returns a PocketBase 404, because no route was ever registered.
-
-Unraid → **Apps** → search **pocketbase**. Whichever template you pick, set it up to match this
-exactly — add any Path rows the template is missing:
+> **Two mounts and a port people get wrong.** Templates often omit `/pb_hooks` entirely, and
+> may map the host port to container port **80** — PocketBase listens on **8090**. Either
+> mistake gives you a server that starts fine and 404s every route.
 
 | Setting | Value |
 |---|---|
 | Repository | `ghcr.io/muchobien/pocketbase:latest` |
-| Network | `bridge` |
-| Port | `8090` → `8090` |
+| Network Type | **Bridge** |
+| Port | Host `8090` → **Container `8090`** |
 | Path | `/mnt/user/appdata/pocketbase/pb_data` → `/pb_data` |
 | Path | `/mnt/user/appdata/pocketbase/pb_hooks` → `/pb_hooks` |
 | Path | `/mnt/user/appdata/pocketbase/pb_public` → `/pb_public` |
 
-Verify all three mounts landed before you go further:
+**Leave it on Bridge.** Putting it on `br0` breaks it: macvlan containers cannot talk to their
+own host, so the reverse proxy can't reach it.
+
+Verify the container took all three mounts and the right port:
 
 ```bash
-docker inspect pocketbase --format '{{range .Mounts}}[{{.Source}} -> {{.Destination}}] {{end}}'
+docker inspect pocketbase --format '{{.Config.Image}} {{range .Mounts}}[{{.Destination}}] {{end}}'
+docker ps --filter name=pocketbase --format '{{.Ports}}'
 ```
 
-Then pull this repo's files onto the server. Open the Unraid **Terminal** (`>_`, top right)
-and paste:
+You want `->8090/tcp`, not `->80/tcp`.
+
+Load the app files from the Unraid **Terminal** (`>_`, top right):
 
 ```bash
 mkdir -p /mnt/user/appdata/pocketbase/pb_hooks /mnt/user/appdata/pocketbase/pb_public
@@ -66,45 +62,90 @@ curl -fsSL -o pb_public/index.html $B/pb_public/index.html
 ls -l pb_hooks pb_public
 ```
 
-Expect roughly 6 KB, 7.5 KB and 24 KB.
+Roughly 6 KB, 7.5 KB, 24 KB. **Restart the container afterwards** — hooks register only at
+startup. (`pb_public` is read per request, so page edits need no restart, only a browser
+hard-refresh.)
 
-**Restart the container after copying.** Hooks are registered at startup, so files dropped in
-while it is running are ignored until it restarts.
-
-Then from any machine on your LAN check:
+Check from another machine on the LAN:
 
 ```bash
 curl http://TOWER-IP:8090/api/dop/health
 ```
 
-You want `{"ok":true,"hasDraft":false,...}`.
+`{"ok":true,...}` with a `statePath` starting `/pb_hooks/../pb_data/` means everything loaded.
+A PocketBase-shaped `{"code":404,"message":"Not Found."}` means the server is healthy but the
+hooks did not register: check the `/pb_hooks` mount, the version, and that you restarted.
 
-A reply of `{"code":404,"message":"Not Found."}` is PocketBase itself answering, so the server
-is healthy and only the hooks are missing. In order of likelihood: no `/pb_hooks` mount, a
-PocketBase older than 0.23, or the container was not restarted after the files were copied.
-`docker logs pocketbase --tail 40` names the file it failed on.
+**Set the superuser password** before anything is exposed:
 
-**Set the superuser password now.** Open `http://TOWER-IP:8090/_/` and create the account
-before anything is exposed to the internet.
+```bash
+docker exec pocketbase /usr/local/bin/pocketbase superuser upsert you@example.com 'a-long-password' --dir /pb_data
+```
+
+`--dir /pb_data` is required. Without it the command edits a database nothing is using and still
+reports success. If the dashboard shows a **login** form rather than a create-account form, an
+account already exists — `upsert` resets it either way.
 
 ## 4. Certificate and reverse proxy
 
-Unraid → **Apps** → **Nginx Proxy Manager** → Install (skip if you already run NPM or SWAG).
-Open its UI on port 81, default login `admin@example.com` / `changeme`, and change it
-immediately.
+Unraid → **Apps** → **Nginx Proxy Manager Official**.
 
-**SSL Certificates → Add → Let's Encrypt**
-- Domain: `melgardraft.duckdns.org`
-- Enable **Use a DNS Challenge**, provider **DuckDNS**, credentials `dns_duckdns_token=YOUR_TOKEN`
-- Agree to the terms, Save. This is why you don't need port 80 open.
+> **Unraid holds ports 80 and 443 on the host.** Its web GUI has 80, and its nginx binds
+> `127.0.0.1:443`. Docker cannot bind `0.0.0.0:443` over that, so a plain `443:443` mapping
+> fails with "address already in use" even though nothing external answers there. Use a
+> different host port and let the router translate.
 
-**Hosts → Proxy Hosts → Add**
-- Domain: `melgardraft.duckdns.org`
-- Forward to `TOWER-IP` port `8090`, scheme `http`
-- **Websockets Support: on**
-- SSL tab: pick the certificate, turn on **Force SSL** and **HTTP/2**
+| Setting | Value |
+|---|---|
+| Network Type | **Bridge** (not br0 — same macvlan problem) |
+| WebUI | Host `81` → Container `81` |
+| HTTPS Port | Host **`4443`** → Container `443` |
+| HTTP Port | **remove the row** — not needed with a DNS challenge |
+| Data | `/mnt/user/appdata/Nginx-Proxy-Manager-Official/data` → `/data` |
+| Certificates | `/mnt/user/appdata/Nginx-Proxy-Manager-Official/letsencrypt` → `/etc/letsencrypt` |
 
-In the **Advanced** tab, keep the admin UI off the public internet:
+Those two appdata paths hold the certificate and all config, so the container can be deleted and
+re-added freely without losing anything.
+
+Open `http://TOWER-IP:81`, log in with `admin@example.com` / `changeme`, change both immediately.
+
+### The certificate
+
+**Certificates → Add Certificate** — this is a **dropdown**. Pick **Let's Encrypt via DNS**, not
+via HTTP. Older guides describe a "Use a DNS Challenge" toggle inside the dialog; newer builds
+moved that choice into the menu instead.
+
+- Domain Names: `melgardraft.duckdns.org` — the **full** hostname, typed then **Enter** to make
+  a chip. Just `melgardraft` will fail. A pasted `https://…` URL is rejected by the field's
+  validation pattern.
+- DNS Provider: **DuckDNS**
+- Credentials: `dns_duckdns_token=YOUR_TOKEN` — one line, replacing the placeholder text
+- Propagation Seconds: **120** (blank uses a default that is often too short)
+- Save. **Never press Test** — it checks HTTP reachability on port 80, which you deliberately
+  aren't using, and it fails no matter how correct your setup is.
+
+> **Let's Encrypt allows only 5 failed validations per hostname per hour.** Each wrong attempt
+> burns one. Confirm the right challenge was used:
+> ```bash
+> docker logs Nginx-Proxy-Manager-Official --tail 20 2>&1 | grep -i "command:"
+> ```
+> `--authenticator dns-duckdns` is right. `--authenticator webroot` means it used HTTP-01 and
+> will keep failing until you switch to the DNS variant.
+
+### The proxy host
+
+**Hosts → Proxy Hosts → Add Proxy Host**
+
+- Domain Names: `melgardraft.duckdns.org`
+- Scheme `http`, Forward Hostname / IP **`172.17.0.1`**, Forward Port **`8090`**
+- Websockets Support: **ON**
+
+`172.17.0.1` is the Docker bridge gateway — the host as seen from inside a container. It is
+stable regardless of LAN addressing.
+
+**SSL tab:** select the certificate, **Force SSL** on, **HTTP/2** on.
+
+**Custom Nginx Configuration** (the gear icon — older builds called this the Advanced tab):
 
 ```nginx
 location /_/ {
@@ -112,36 +153,48 @@ location /_/ {
 }
 ```
 
-You can still reach the dashboard on your LAN at `http://TOWER-IP:8090/_/`.
+That keeps the PocketBase dashboard off the public internet. The LAN route
+`http://TOWER-IP:8090/_/` still works.
+
+Verify locally before opening any ports:
+
+```bash
+curl -sk --resolve melgardraft.duckdns.org:4443:TOWER-IP https://melgardraft.duckdns.org:4443/api/dop/health
+curl -sk --resolve melgardraft.duckdns.org:4443:TOWER-IP -o /dev/null -w "%{http_code}\n" https://melgardraft.duckdns.org:4443/_/
+```
+
+`{"ok":true,...}` then `404`.
 
 ## 5. Forward the port
 
-UniFi → **Settings → Routing & Firewall → Port Forwarding**:
+UniFi → **Settings → Security → Port Forwarding** (older versions: *Routing & Firewall*):
 
-| | |
+| Field | Value |
 |---|---|
-| Port | `443` |
-| Forward IP | your Nginx Proxy Manager host |
-| Forward Port | `443` |
+| Name | `DraftPicker` |
+| Port (external) | `443` |
+| Forward IP | `TOWER-IP` |
+| Forward Port | **`4443`** |
+| Protocol | TCP |
 
-Test from your **phone on cellular, not wifi** — that is the only test that proves it works
-from outside:
+External and internal ports differ deliberately — see the port note in step 4. Owners still use
+a plain `https://` URL with no port.
 
-```
-https://melgardraft.duckdns.org/api/dop/health
-```
+**Test from a phone on cellular, wifi off.** From inside the LAN you will likely hit your
+gateway instead and get a misleading result.
+
+Forward **only** 443. Unraid's web GUI is on port 80 and must never be exposed.
 
 ## 6. Run the draft
 
-1. Open `https://melgardraft.duckdns.org/` — you get the setup screen.
-2. Enter the 12 owner names in picking order and hit **Shuffle deck and start**.
-   **Do this immediately.** The first person to hit that page creates the draft, and after
-   that it is locked to your host token.
-3. **Bookmark the host link.** It contains your host token and is the only way back to the
-   board. It is under *Host link and starting over*.
-4. **Copy all 12 links** and send each owner theirs. That is the last thing you have to do.
-5. Optionally post the commit hash to the group chat, and the plain
-   `https://melgardraft.duckdns.org/` address — that's a safe read-only board anyone can watch.
+1. Open `https://melgardraft.duckdns.org/` — the setup screen.
+2. Enter the 12 owner names in picking order → **Shuffle deck and start**.
+   **Do this immediately.** The first visitor to that page creates the draft; afterwards it is
+   locked to your host token.
+3. **Bookmark the host link** (under *Host link and starting over*). It is the only way back.
+4. **Copy all 12 links**, send each owner theirs. That is the last thing you have to do.
+5. Optionally post the commit hash, and the bare `https://melgardraft.duckdns.org/` address as a
+   read-only board anyone can watch.
 
 Owners pick whenever they like. Your board updates itself. Nobody sends you anything.
 
@@ -149,18 +202,21 @@ Owners pick whenever they like. Your board updates itself. Nobody sends you anyt
 
 ## Notes
 
-**Security.** You are opening a port to the internet. The admin UI is blocked at the proxy,
-the superuser password is yours, and the app's own endpoints only expose what a given token is
-entitled to. Take the port forward back down after Saturday.
+**Practice first, then reset.** Run a full practice draft, then **Start over** before the real
+one. To wipe it from the terminal instead:
+`rm -f /mnt/user/appdata/pocketbase/pb_data/dop_state.json`
 
-**Backups.** Everything lives in `/mnt/user/appdata/pocketbase/pb_data/dop_state.json`. It is a
-few kilobytes. Copy it somewhere once the draft is under way, and the whole thing is
-recoverable by copying it back.
+**Backups.** The entire draft is `/mnt/user/appdata/pocketbase/pb_data/dop_state.json`, a few
+kilobytes. Copy it somewhere once picks start; restoring is copying it back.
 
-**If the server is down** when an owner opens their link, they see an error and can retry
-later — nothing is lost. But the draft cannot progress while it is offline, so keep the box up
-Thursday through Saturday.
+**Keep the box up** Thursday to Saturday. If it's down an owner sees an error and can retry —
+nothing is lost — but the draft cannot progress.
 
-**Fallback.** `index.html` in the repo root is the older self-contained version that needs no
-server at all. It works entirely offline in one browser, at the cost of passing codes around by
-text. It is there in case Saturday arrives and this setup isn't ready.
+**Take the port forward down afterwards.**
+
+**If something breaks,** check the obvious thing first: is the PocketBase container actually
+running? A stopped container looks exactly like a networking failure from every direction.
+
+**Fallback.** `index.html` in the repo root is a self-contained version needing no server at
+all, deployed at <https://pmelgar21.github.io/DraftOrderPicker/>. It trades away free selection
+and live updates for working entirely offline in one browser.
